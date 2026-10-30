@@ -1,3 +1,3 @@
-# Alphabet Snake website
+# Rebecca Mestav website
 
-Homepage and privacy policy for the Alphabet Snake Android game, served by GitHub Pages.
+Served by GitHub Pages at https://rebeccamestav.com. Alphabet Snake (homepage, privacy policy and the browser game in play/) lives in alphabet-snake/.
