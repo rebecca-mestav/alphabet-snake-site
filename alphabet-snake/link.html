@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Alphabet Snake to Google</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<style>
+  main { text-align: center; }
+  #google { display: flex; justify-content: center; margin: 24px 0; min-height: 44px; }
+</style>
+</head>
+<body>
+<main>
+<img class="logo" src="icon.png" alt="" style="margin: 0 auto 16px">
+<h1>Link to Google</h1>
+<p id="say">Sign in with Google to play Alphabet Snake as the same player on your phone and in your browser.</p>
+<div id="google"></div>
+</main>
+<script>
+// The phone left a note at links/<code> in the Realtime Database: its Firebase
+// ID and sign-in token. Signing in with Google here either joins the Google
+// account to the phone's player (a Google account not used yet), or, for a
+// Google account already used (in the browser version), hands the phone that
+// player's sign-in. The phone picks up the answer and goes on from there.
+const KEY = 'AIzaSyCgZJ2m2S0ck4ibmG4Rbt9i8xVJO1vWNcw';
+const CLIENT_ID = '12709041917-gujn9ca4d3bd8h6n6pup0fcdlkseisob.apps.googleusercontent.com';
+const DATABASE = 'https://alphabet-snake-default-rtdb.firebaseio.com';
+const code = new URLSearchParams(location.search).get('c') || '';
+const say = (text) => { document.getElementById('say').textContent = text; };
+
+async function signIn(googleToken, phoneToken) {
+  const body = {postBody: 'id_token=' + googleToken + '&providerId=google.com',
+    requestUri: location.origin, returnSecureToken: true};
+  if (phoneToken) body.idToken = phoneToken;
+  const reply = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=' + KEY,
+    {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return {ok: reply.ok, data: await reply.json()};
+}
+
+async function done(answer) {
+  document.getElementById('google').style.display = 'none';
+  say('Linking...');
+  try {
+    const phoneToken = await (await fetch(DATABASE + '/links/' + code + '/token.json')).json();
+    if (!phoneToken) {
+      say('This link has run out. Tap Link Google account in the game again.');
+      return;
+    }
+    let result = await signIn(answer.credential, phoneToken);
+    let reply = {kind: 'linked', email: ''};
+    if (!result.ok && String(result.data.error && result.data.error.message).startsWith('FEDERATED_USER_ID_ALREADY_LINKED')) {
+      // This Google account already has a player: the phone becomes it.
+      result = await signIn(answer.credential, null);
+      reply = {kind: 'switch', refresh: result.data.refreshToken, email: ''};
+    }
+    if (!result.ok) throw new Error(JSON.stringify(result.data));
+    reply.email = result.data.email || '';
+    const wrote = await fetch(DATABASE + '/links/' + code + '/answer.json?auth=' + encodeURIComponent(result.data.idToken),
+      {method: 'PUT', body: JSON.stringify(reply)});
+    if (!wrote.ok) throw new Error('answer ' + wrote.status);
+    say('Done! Go back to Alphabet Snake on your phone.');
+  } catch (e) {
+    console.error(e);
+    say("Couldn't link. Go back to the game and try again.");
+  }
+}
+
+window.onload = () => {
+  if (!code) {
+    say('Open this page from the Account button in the Alphabet Snake app.');
+    return;
+  }
+  google.accounts.id.initialize({client_id: CLIENT_ID, callback: done});
+  google.accounts.id.renderButton(document.getElementById('google'), {theme: 'outline', size: 'large', shape: 'pill'});
+};
+</script>
+</body>
+</html>
