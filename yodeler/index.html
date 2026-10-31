@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Yodeler</title>
+<style>
+:root{--bg:#f4f1ea;--fg:#2a2a28;--btn:#fff;--bd:#c9c4b8;--ac:#2b6cb0;box-sizing:border-box;
+ padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1d1d1b;--fg:#ecebe6;--btn:#2d2d2a;--bd:#55544e;--ac:#7fb2e5}}
+:root[data-theme="dark"]{--bg:#1d1d1b;--fg:#ecebe6;--btn:#2d2d2a;--bd:#55544e;--ac:#7fb2e5}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:none}
+#app{height:100%;box-sizing:border-box;padding:10px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:8px 10px}
+#top{grid-column:1/3;grid-row:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#scoreBox{margin-left:auto;font-size:18px}
+#scoreBox b{font-size:22px}
+button,select{font:inherit;color:var(--fg);background:var(--btn);border:1.5px solid var(--bd);border-radius:14px}
+button{touch-action:none}
+.pill{padding:4px 10px;border-radius:999px}
+select{padding:4px 10px;border-radius:999px;max-width:40vw}
+#speed{max-width:none}
+#pad{grid-column:1;grid-row:2;display:flex;gap:8px;touch-action:none}
+.sl{width:60px;position:relative;border:1.5px solid var(--bd);border-radius:14px;background-color:var(--btn);box-sizing:border-box;touch-action:none;
+ background-image:repeating-linear-gradient(to bottom,var(--bd) 0 2px,transparent 2px calc(100% / 14))}
+.sl span{position:absolute;top:6px;left:0;right:0;text-align:center;font-size:12px;opacity:.7;pointer-events:none}
+.knob{position:absolute;left:-2px;right:-2px;height:14px;margin-top:-7px;border-radius:7px;background:var(--ac);pointer-events:none}
+#laneWrap{grid-column:2;grid-row:2;position:relative;min-width:0;min-height:0}
+#lane{position:absolute;inset:0;width:100%;height:100%;display:block}
+#ctl{grid-column:1;grid-row:3;display:flex;gap:6px}
+#start,#pause{flex:1;min-width:0;height:clamp(48px,15vh,70px);font-size:16px;font-weight:700}
+#pause:disabled{opacity:.4}
+#start{font-weight:700;background:var(--ac);border-color:var(--ac);color:#fff}
+#row{grid-column:2;grid-row:3;justify-self:end;margin-right:calc(clamp(52px,10vw,84px) + 8px);display:flex;gap:8px;touch-action:none}
+.btn{width:clamp(52px,10vw,84px);height:clamp(48px,15vh,70px);font-size:18px;font-weight:700;border:2.5px solid transparent}
+.btn.on{box-shadow:0 0 0 3px var(--fg);transform:translateY(2px)}
+#rot{display:none}
+@media (orientation:portrait){#rot{display:flex;position:fixed;inset:0;z-index:9;background:var(--bg);align-items:center;justify-content:center;font-size:20px}}
+</style>
+</head>
+<body>
+<div id="app">
+ <div id="top">
+  <button id="snap" class="pill">snap on</button>
+  <button id="full" class="pill">fullscreen</button>
+  <select id="song"></select>
+  <select id="speed"><option value="1">100%</option><option value="0.9">90%</option><option value="0.75">75%</option><option value="0.6">60%</option><option value="0.5">50%</option><option value="0.4">40%</option><option value="0.25">25%</option></select>
+  <button id="auto" class="pill">auto off</button>
+  <span id="scoreBox">Score <b id="score">0</b></span>
+ </div>
+ <div id="pad">
+  <div class="sl" id="slC"><div class="knob" id="kC"></div></div>
+  <div class="sl" id="slF"><div class="knob" id="kF"></div></div>
+ </div>
+ <div id="laneWrap"><canvas id="lane"></canvas></div>
+ <div id="ctl"><button id="start">Start</button><button id="pause" disabled>Pause</button></div>
+ <div id="row"></div>
+</div>
+<div id="rot">Rotate your phone to landscape</div>
+<script>
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const R=6,B4=493.88,BW=[150,250,350],FG=[1,.8,.55];
+
+// vowel colours; falsetto uses a pastel version of the same colour
+const COL={yo:'#e5524a',de:'#f2a22d',le:'#5fb760',hee:'#2fa8d8',hoo:'#9a62d6'};
+const pastel=h=>{const n=parseInt(h.slice(1),16),m=c=>Math.round(c+(255-c)*.62);return 'rgb('+m(n>>16&255)+','+m(n>>8&255)+','+m(n&255)+')'};
+
+// c = closure ms, b = burst ms, vs = voicing start, vr = voicing ramp, asp = breath onset, on = hold ms, gl = glide ms, ol = onset level, lat = lateral
+const SYL=[
+ {n:'yo', c:0, b:0, vs:0, vr:30,asp:0,on:40,gl:110,ol:.85,fi:[290,1900,2800],ft:[500,900,2600]},
+ {n:'de', c:35,b:18,vs:55,vr:8, asp:0,on:0, gl:35,ol:1,  ci:[250,1750,2650], fi:[350,1700,2600],ft:[450,2000,2600]},
+ {n:'le', c:0, b:0, vs:0, vr:3, asp:0,on:50,gl:45,ol:.5, lat:1, fi:[350,1200,2700],ft:[550,1800,2500]},
+ {n:'hee',c:0, b:0, vs:40,vr:30,asp:1,on:0, gl:1, ol:1,  fi:[280,2300,3000],ft:[280,2300,3000]},
+ {n:'hoo',c:0, b:0, vs:40,vr:30,asp:1,on:0, gl:1, ol:1,  fi:[320,750,2200], ft:[320,750,2200], fg:[1,.3,.08], up:.3}];
+const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+let SHIFT=0,ctx,A,cur=null,t0=0,held=-1,fal=false,target=0,semis=0,snap=true,drag=false;
+let prevFal=false,breakT=-1e9,breakDir=0,prevHeld=-1,soundSince=0;
+
+// ---------------------------------------------------------------- songs
+// each note: [hit time (s), length (s), vowel, pitch (semitones from B4, -6..6, same height on both sliders), falsetto 0/1]
+const SONGS=[
+ {name:'Auerhahn Jodler',beats:true,shift:-3,cb:'BBBgggBBBBBBBBBBBBBBBggggggggggggBBBBBBBBBBBBggggggggggggBBBhhhhhhhhhhhhjjjjjjhhhhhhhhhhhhhhhhhhjjjjjjhhhnnnkkkkkkhhhhhhjjjjjjhhhnnnkkkkkkhhhhhhjjjjjjhhhnnn',tempo:[[0,140]],hold:150,holdLen:4,credit:'Auerhahn Jodler: Volksweise (Steirisch, ~1880), traditional',notes:[[11,0.5,'yo',-3,0],[11.5,0.5,'de',-3,0],[12,1.5,'le',2,0],[13.5,0.5,'de',6,0],[14.0,0.5,'le',6,0],[14.5,0.5,'hee',2,1],[15,1.5,'hoo',-3,1],[17.0,0.5,'yo',-3,0],[17.5,0.5,'de',-3,0],[18,1.0,'le',2,0],[19.0,1.0,'de',1,0],[20.0,1.0,'le',-1,0],[21,1.5,'de',1,0],[23.0,0.5,'yo',-3,0],[23.5,0.5,'de',-3,0],[24,1.5,'le',1,0],[25.5,0.5,'de',4,0],[26.0,0.5,'le',4,0],[26.5,0.5,'hee',1,1],[27,1.5,'hoo',-3,1],[29.0,0.5,'yo',-3,0],[29.5,0.5,'de',-3,0],[30,1.0,'le',1,0],[31.0,1.0,'de',-1,0],[32.0,1.0,'le',1,0],[33,1.5,'de',2,0],[35.0,0.5,'yo',-3,0],[35.5,0.5,'de',-3,0],[36,1.5,'le',2,0],[37.5,0.5,'de',6,0],[38.0,0.5,'le',6,0],[38.5,0.5,'hee',2,1],[39,1.5,'hoo',-3,1],[41.0,0.5,'yo',-3,0],[41.5,0.5,'de',-3,0],[42,1.0,'le',2,0],[43.0,1.0,'de',1,0],[44.0,1.0,'le',-1,0],[45,1.5,'de',1,0],[47.0,0.5,'yo',-3,0],[47.5,0.5,'de',-3,0],[48,1.5,'le',1,0],[49.5,0.5,'de',4,0],[50.0,0.5,'le',4,0],[50.5,0.5,'hee',1,1],[51,1.5,'hoo',-3,1],[53.0,0.5,'yo',-3,0],[53.5,0.5,'de',-3,0],[54,1.0,'le',1,0],[55.0,1.0,'de',-1,0],[56.0,1.0,'le',1,0],[57,1.5,'de',2,0],[59.0,0.5,'yo',2,0],[59.5,0.5,'de',2,0],[60,0.5,'le',2,0],[60.5,0.5,'hee',-1,1],[61.0,0.5,'hoo',-1,1],[61.5,0.5,'de',2,0],[62.0,0.5,'le',2,0],[62.5,0.5,'hee',-1,1],[63.0,1.5,'hoo',-1,1],[64.5,0.5,'hee',2,1],[65.0,0.5,'hoo',-1,1],[65.5,0.5,'hee',-3,1],[66.0,0.5,'hoo',-5,1],[66.5,0.5,'de',2,0],[67.0,0.5,'le',2,0],[67.5,0.5,'hee',-5,1],[68.0,0.5,'de',2,0],[68.5,0.5,'hee',-5,1],[69.0,1.5,'yo',-1,0],[71.0,0.5,'yo',2,0],[71.5,0.5,'de',2,0],[72.0,1.0,'le',0,0],[73.0,0.5,'yo',2,0],[73.5,0.5,'de',2,0],[74.0,0.5,'le',2,0],[74.5,0.5,'hee',-1,1],[75,2.0,'hoo',-3,1],[77.0,0.5,'yo',2,0],[77.5,0.5,'de',2,0],[78.0,1.0,'le',-1,0],[79.0,0.5,'yo',2,0],[79.5,0.5,'de',2,0],[80.0,0.5,'le',2,0],[80.5,0.5,'hee',-1,1],[81.0,1.5,'hoo',-5,1],[83.0,0.5,'yo',2,0],[83.5,0.5,'de',2,0],[84,0.5,'le',2,0],[84.5,0.5,'hee',-1,1],[85.0,0.5,'hoo',-1,1],[85.5,0.5,'de',2,0],[86.0,0.5,'le',2,0],[86.5,0.5,'hee',-1,1],[87.0,1.5,'hoo',-1,1],[88.5,0.5,'hee',2,1],[89.0,0.5,'hoo',-1,1],[89.5,0.5,'hee',-3,1],[90.0,0.5,'hoo',-5,1],[90.5,0.5,'de',2,0],[91.0,0.5,'le',2,0],[91.5,0.5,'hee',-5,1],[92.0,0.5,'de',2,0],[92.5,0.5,'hee',-5,1],[93.0,1.5,'yo',-1,0],[95.0,0.5,'yo',2,0],[95.5,0.5,'de',2,0],[96.0,1.0,'le',0,0],[97.0,0.5,'yo',2,0],[97.5,0.5,'de',2,0],[98.0,0.5,'le',2,0],[98.5,0.5,'hee',-1,1],[99,1.0,'hoo',-3,1],[100.0,1.0,'le',2,0],[101.0,1.0,'hee',-1,1],[102.0,4.0,'hoo',-5,1],[108,0.5,'le',4,0],[108.5,0.5,'hee',0,1],[109.0,0.5,'hoo',0,1],[109.5,0.5,'de',4,0],[110.0,0.5,'le',4,0],[110.5,0.5,'hee',0,1],[111.0,1.5,'hoo',0,1],[112.5,0.5,'hee',-1,1],[113.0,1.0,'hoo',-3,1],[114.0,0.5,'le',2,0],[114.5,0.5,'hee',-1,1],[115.0,0.5,'hoo',-1,1],[115.5,0.5,'de',2,0],[116.0,0.5,'le',2,0],[116.5,0.5,'hee',-1,1],[117.0,1.5,'hoo',-1,1],[118.5,0.5,'hee',-3,1],[119.0,1.0,'hoo',-5,1],[120,0.5,'yo',6,0],[120.5,0.5,'de',2,0],[121.0,0.5,'le',2,0],[121.5,0.5,'hee',-6,1],[122.0,1.0,'hoo',0,1],[123.0,0.5,'yo',6,0],[123.5,0.5,'de',2,0],[124.0,0.5,'le',2,0],[124.5,0.5,'hee',-6,1],[125.0,1.0,'hoo',0,1],[126.0,1.0,'yo',-5,0],[127.0,0.5,'de',-5,0],[127.5,0.5,'le',-6,0],[128.0,0.5,'de',-5,0],[128.5,0.5,'le',-3,0],[129.0,1.5,'hee',-1,1],[132,0.5,'le',4,0],[132.5,0.5,'hee',0,1],[133.0,0.5,'hoo',0,1],[133.5,0.5,'de',4,0],[134.0,0.5,'le',4,0],[134.5,0.5,'hee',0,1],[135.0,1.5,'hoo',0,1],[136.5,0.5,'hee',-1,1],[137.0,1.0,'hoo',-3,1],[138.0,0.5,'le',2,0],[138.5,0.5,'hee',-1,1],[139.0,0.5,'hoo',-1,1],[139.5,0.5,'de',2,0],[140.0,0.5,'le',2,0],[140.5,0.5,'hee',-1,1],[141.0,1.5,'hoo',-1,1],[142.5,0.5,'hee',-3,1],[143.0,1.0,'hoo',-5,1],[144,0.5,'yo',6,0],[144.5,0.5,'de',2,0],[145.0,0.5,'le',2,0],[145.5,0.5,'de',6,0],[146.0,0.5,'yo',0,0],[146.5,0.5,'de',6,0],[147.0,0.5,'le',6,0],[147.5,0.5,'de',2,0],[148.0,0.5,'yo',2,0],[148.5,0.5,'de',6,0],[149.0,0.5,'le',0,0],[149.5,0.5,'hee',-6,1],[150.0,4.0,'hoo',-5,1]]},
+ {name:'Appenzeller Jodler',beats:true,cb:'BBFFCCFFFFBBCCFFFFBBCCFFBBFFCCFFBBFFCCFFFFBBCCFFFFBBCCFFBBFFCCFFBBFFCCFFFFFFCCCCCCCCFFFFFFFFCCCCCCCCFFCCFFFFCCCCFFFFCCCCFFFFCCCCFFFFCCCCFFBBCCFFFFBBCCFFBBFFCCFFBBFFCCFFFFFFCCCCFFFFCCCCFFFFCCCCCCFFCCFFFFCCFF',tempo:[[0,126]],hold:204,holdLen:1.6,credit:'Appenzeller Jodler: traditional, arr. K. Richter (CC BY-NC-SA 4.0)',notes:[[8.0,0.75,'le',1,0],[8.75,0.25,'yo',6,0],[9.0,0.5,'de',5,0],[9.5,0.5,'le',6,0],[10.0,0.5,'hee',-4,1],[10.5,0.5,'le',3,0],[11.0,0.75,'hee',-4,1],[11.75,0.25,'le',6,0],[12.0,0.25,'yo',5,0],[12.25,0.25,'de',4,0],[12.5,0.25,'le',5,0],[12.75,0.25,'hee',3,1],[13.0,0.5,'hoo',1,1],[13.5,0.5,'le',5,0],[14.0,0.25,'yo',6,0],[14.25,0.25,'de',5,0],[14.5,0.25,'le',6,0],[14.75,0.25,'hee',3,1],[15.0,0.5,'hoo',1,1],[15.5,0.5,'yo',1,0],[16.0,0.75,'de',1,0],[16.75,0.25,'yo',6,0],[17.0,0.5,'de',5,0],[17.5,0.5,'le',6,0],[18.0,0.5,'hee',-4,1],[18.5,0.5,'le',3,0],[19.0,0.75,'hee',-4,1],[19.75,0.25,'le',6,0],[20.0,0.25,'yo',5,0],[20.25,0.25,'de',4,0],[20.5,0.25,'le',5,0],[20.75,0.25,'hee',3,1],[21.0,0.5,'hoo',1,1],[21.5,0.5,'yo',5,0],[22.0,1.0,'de',6,0],[24.0,1.0,'hee',3,1],[25.0,0.75,'hoo',6,1],[25.75,0.25,'hee',3,1],[26.0,0.25,'hoo',1,1],[26.25,0.25,'hee',0,1],[26.5,0.25,'hoo',1,1],[26.75,0.25,'hee',6,1],[27.0,1.0,'hoo',-2,1],[28.0,0.25,'yo',5,0],[28.25,0.25,'de',4,0],[28.5,0.25,'le',5,0],[28.75,0.25,'hee',3,1],[29.0,0.5,'hoo',1,1],[29.5,0.5,'le',5,0],[30.0,0.25,'yo',6,0],[30.25,0.25,'de',5,0],[30.5,0.25,'le',6,0],[30.75,0.25,'hee',3,1],[31.0,1.0,'hoo',1,1],[32.0,1.0,'hee',3,1],[33.0,0.75,'hoo',6,1],[33.75,0.25,'hee',3,1],[34.0,0.25,'hoo',1,1],[34.25,0.25,'hee',0,1],[34.5,0.25,'hoo',1,1],[34.75,0.25,'hee',6,1],[35.0,1.0,'hoo',-2,1],[36.0,0.25,'yo',5,0],[36.25,0.25,'de',4,0],[36.5,0.25,'le',5,0],[36.75,0.25,'hee',3,1],[37.0,0.5,'hoo',1,1],[37.5,0.5,'yo',5,0],[38.0,0.5,'de',6,0],[40.0,0.75,'le',1,0],[40.75,0.25,'yo',6,0],[41.0,0.5,'de',5,0],[41.5,0.5,'le',6,0],[42.0,0.5,'hee',-4,1],[42.5,0.5,'le',3,0],[43.0,0.75,'hee',-4,1],[43.75,0.25,'le',6,0],[44.0,0.25,'yo',5,0],[44.25,0.25,'de',4,0],[44.5,0.25,'le',5,0],[44.75,0.25,'hee',3,1],[45.0,0.5,'hoo',1,1],[45.5,0.5,'le',5,0],[46.0,0.25,'yo',6,0],[46.25,0.25,'de',5,0],[46.5,0.25,'le',6,0],[46.75,0.25,'hee',3,1],[47.0,0.5,'hoo',1,1],[47.5,0.5,'yo',1,0],[48.0,0.75,'de',1,0],[48.75,0.25,'yo',6,0],[49.0,0.5,'de',5,0],[49.5,0.5,'le',6,0],[50.0,0.5,'hee',-4,1],[50.5,0.5,'le',3,0],[51.0,0.75,'hee',-4,1],[51.75,0.25,'le',6,0],[52.0,0.25,'yo',5,0],[52.25,0.25,'de',4,0],[52.5,0.25,'le',5,0],[52.75,0.25,'hee',3,1],[53.0,0.5,'hoo',1,1],[53.5,0.5,'yo',5,0],[54.0,1.0,'de',6,0],[56.0,1.0,'hee',3,1],[57.0,0.75,'hoo',6,1],[57.75,0.25,'hee',3,1],[58.0,0.25,'hoo',1,1],[58.25,0.25,'hee',0,1],[58.5,0.25,'hoo',1,1],[58.75,0.25,'hee',6,1],[59.0,1.0,'hoo',-2,1],[60.0,0.25,'yo',5,0],[60.25,0.25,'de',4,0],[60.5,0.25,'le',5,0],[60.75,0.25,'hee',3,1],[61.0,0.5,'hoo',1,1],[61.5,0.5,'le',5,0],[62.0,0.25,'yo',6,0],[62.25,0.25,'de',5,0],[62.5,0.25,'le',6,0],[62.75,0.25,'hee',3,1],[63.0,1.0,'hoo',1,1],[64.0,1.0,'hee',3,1],[65.0,0.75,'hoo',6,1],[65.75,0.25,'hee',3,1],[66.0,0.25,'hoo',1,1],[66.25,0.25,'hee',0,1],[66.5,0.25,'hoo',1,1],[66.75,0.25,'hee',6,1],[67.0,1.0,'hoo',-2,1],[68.0,0.25,'yo',5,0],[68.25,0.25,'de',4,0],[68.5,0.25,'le',5,0],[68.75,0.25,'hee',3,1],[69.0,0.5,'hoo',1,1],[69.5,0.5,'yo',5,0],[70.0,0.5,'de',6,0],[72,1.0,'le',6,0],[73.0,3.0,'hee',-2,1],[76,1.0,'le',5,0],[77.0,3.0,'hee',-4,1],[80,1.0,'le',5,0],[81.0,3.0,'hee',-4,1],[84,1.0,'hoo',-6,1],[85.0,3.0,'hee',-2,1],[88,1.0,'hoo',-6,1],[89.0,3.0,'hee',-2,1],[92,1.0,'le',5,0],[93.0,3.0,'hee',-4,1],[96,1.0,'le',5,0],[97.0,3.0,'hee',-4,1],[104.0,0.25,'hoo',-6,1],[104.25,0.25,'hee',-6,1],[104.5,0.25,'hoo',-6,1],[104.75,0.25,'hee',3,1],[105.0,0.25,'yo',3,0],[105.25,0.25,'de',3,0],[105.5,0.25,'le',3,0],[105.75,0.25,'hee',3,1],[106.0,0.25,'yo',1,0],[106.25,0.25,'de',1,0],[106.5,0.25,'le',1,0],[106.75,0.25,'hee',3,1],[107.0,0.25,'yo',6,0],[107.25,0.25,'de',6,0],[107.5,0.25,'le',6,0],[107.75,0.25,'hee',3,1],[108.0,0.25,'yo',5,0],[108.25,0.25,'de',5,0],[108.5,0.25,'le',5,0],[108.75,0.25,'hee',3,1],[109.0,0.25,'yo',3,0],[109.25,0.25,'de',3,0],[109.5,0.25,'le',3,0],[109.75,0.25,'hee',3,1],[110.0,0.5,'le',1,0],[110.5,0.5,'hee',3,1],[111.0,0.5,'hoo',1,1],[112.0,0.25,'yo',6,0],[112.25,0.25,'de',6,0],[112.5,0.25,'le',6,0],[112.75,0.25,'hee',3,1],[113.0,0.25,'yo',3,0],[113.25,0.25,'de',3,0],[113.5,0.25,'le',3,0],[113.75,0.25,'hee',3,1],[114.0,0.25,'yo',1,0],[114.25,0.25,'de',1,0],[114.5,0.25,'le',1,0],[114.75,0.25,'hee',3,1],[115.0,0.25,'yo',6,0],[115.25,0.25,'de',6,0],[115.5,0.25,'le',6,0],[115.75,0.25,'hee',3,1],[116.0,0.25,'yo',5,0],[116.25,0.25,'de',5,0],[116.5,0.25,'le',5,0],[116.75,0.25,'hee',3,1],[117.0,0.25,'yo',3,0],[117.25,0.25,'de',3,0],[117.5,0.25,'le',3,0],[117.75,0.25,'hee',3,1],[118.0,0.5,'le',1,0],[118.5,0.5,'hee',3,1],[119.0,0.5,'hoo',1,1],[120.0,0.25,'yo',6,0],[120.25,0.25,'de',6,0],[120.5,0.25,'le',6,0],[120.75,0.25,'hee',3,1],[121.0,0.25,'yo',3,0],[121.25,0.25,'de',3,0],[121.5,0.25,'le',3,0],[121.75,0.25,'hee',3,1],[122.0,0.25,'yo',1,0],[122.25,0.25,'de',1,0],[122.5,0.25,'le',1,0],[122.75,0.25,'hee',3,1],[123.0,0.25,'yo',6,0],[123.25,0.25,'de',6,0],[123.5,0.25,'le',6,0],[123.75,0.25,'hee',3,1],[124.0,0.25,'yo',5,0],[124.25,0.25,'de',5,0],[124.5,0.25,'le',5,0],[124.75,0.25,'hee',3,1],[125.0,0.25,'yo',3,0],[125.25,0.25,'de',3,0],[125.5,0.25,'le',3,0],[125.75,0.25,'hee',3,1],[126.0,0.5,'le',1,0],[126.5,0.5,'hee',3,1],[127.0,0.5,'hoo',1,1],[128.0,0.25,'yo',6,0],[128.25,0.25,'de',6,0],[128.5,0.25,'le',6,0],[128.75,0.25,'hee',3,1],[129.0,0.25,'yo',3,0],[129.25,0.25,'de',3,0],[129.5,0.25,'le',3,0],[129.75,0.25,'hee',3,1],[130.0,0.25,'yo',1,0],[130.25,0.25,'de',1,0],[130.5,0.25,'le',1,0],[130.75,0.25,'hee',3,1],[131.0,0.25,'yo',6,0],[131.25,0.25,'de',6,0],[131.5,0.25,'le',6,0],[131.75,0.25,'hee',3,1],[132.0,0.25,'yo',5,0],[132.25,0.25,'de',5,0],[132.5,0.25,'le',5,0],[132.75,0.25,'hee',3,1],[133.0,0.25,'yo',3,0],[133.25,0.25,'de',3,0],[133.5,0.25,'le',3,0],[133.75,0.25,'hee',3,1],[134.0,0.5,'le',1,0],[134.5,0.5,'hee',3,1],[135.0,0.5,'hoo',1,1],[136.0,0.75,'le',1,0],[136.75,0.25,'yo',6,0],[137.0,0.5,'de',5,0],[137.5,0.5,'le',6,0],[138.0,0.5,'hee',-4,1],[138.5,0.5,'le',3,0],[139.0,0.75,'hee',-4,1],[139.75,0.25,'le',6,0],[140.0,0.25,'yo',5,0],[140.25,0.25,'de',4,0],[140.5,0.25,'le',5,0],[140.75,0.25,'hee',3,1],[141.0,0.5,'hoo',1,1],[141.5,0.5,'le',5,0],[142.0,0.25,'yo',6,0],[142.25,0.25,'de',5,0],[142.5,0.25,'le',6,0],[142.75,0.25,'hee',3,1],[143.0,0.5,'hoo',1,1],[143.5,0.5,'yo',1,0],[144.0,0.75,'de',1,0],[144.75,0.25,'yo',6,0],[145.0,0.5,'de',5,0],[145.5,0.5,'le',6,0],[146.0,0.5,'hee',-4,1],[146.5,0.5,'le',3,0],[147.0,0.75,'hee',-4,1],[147.75,0.25,'le',6,0],[148.0,0.25,'yo',5,0],[148.25,0.25,'de',4,0],[148.5,0.25,'le',5,0],[148.75,0.25,'hee',3,1],[149.0,0.5,'hoo',1,1],[149.5,0.5,'yo',5,0],[150.0,1.0,'de',6,0],[152.0,1.0,'hee',3,1],[153.0,0.75,'hoo',6,1],[153.75,0.25,'hee',3,1],[154.0,0.25,'hoo',1,1],[154.25,0.25,'hee',0,1],[154.5,0.25,'hoo',1,1],[154.75,0.25,'hee',6,1],[155.0,1.0,'hoo',-2,1],[156.0,0.25,'yo',5,0],[156.25,0.25,'de',4,0],[156.5,0.25,'le',5,0],[156.75,0.25,'hee',3,1],[157.0,0.5,'hoo',1,1],[157.5,0.5,'le',5,0],[158.0,0.25,'yo',6,0],[158.25,0.25,'de',5,0],[158.5,0.25,'le',6,0],[158.75,0.25,'hee',3,1],[159.0,1.0,'hoo',1,1],[160.0,1.0,'hee',3,1],[161.0,0.75,'hoo',6,1],[161.75,0.25,'hee',3,1],[162.0,0.25,'hoo',1,1],[162.25,0.25,'hee',0,1],[162.5,0.25,'hoo',1,1],[162.75,0.25,'hee',6,1],[163.0,1.0,'hoo',-2,1],[164.0,0.25,'yo',5,0],[164.25,0.25,'de',4,0],[164.5,0.25,'le',5,0],[164.75,0.25,'hee',3,1],[165.0,0.5,'hoo',1,1],[165.5,0.5,'yo',5,0],[166.0,0.5,'de',6,0],[168.0,0.25,'yo',6,0],[168.25,0.25,'de',6,0],[168.5,0.25,'le',6,0],[168.75,0.25,'hee',3,1],[169.0,0.25,'yo',3,0],[169.25,0.25,'de',3,0],[169.5,0.25,'le',3,0],[169.75,0.25,'hee',3,1],[170.0,0.25,'yo',1,0],[170.25,0.25,'de',1,0],[170.5,0.25,'le',1,0],[170.75,0.25,'hee',3,1],[171.0,0.25,'yo',6,0],[171.25,0.25,'de',6,0],[171.5,0.25,'le',6,0],[171.75,0.25,'hee',3,1],[172.0,0.25,'yo',5,0],[172.25,0.25,'de',5,0],[172.5,0.25,'le',5,0],[172.75,0.25,'hee',3,1],[173.0,0.25,'yo',3,0],[173.25,0.25,'de',3,0],[173.5,0.25,'le',3,0],[173.75,0.25,'hee',3,1],[174.0,0.5,'le',1,0],[174.5,0.5,'hee',3,1],[175.0,0.5,'hoo',1,1],[176.0,0.25,'yo',6,0],[176.25,0.25,'de',6,0],[176.5,0.25,'le',6,0],[176.75,0.25,'hee',3,1],[177.0,0.25,'yo',3,0],[177.25,0.25,'de',3,0],[177.5,0.25,'le',3,0],[177.75,0.25,'hee',3,1],[178.0,0.25,'yo',1,0],[178.25,0.25,'de',1,0],[178.5,0.25,'le',1,0],[178.75,0.25,'hee',3,1],[179.0,0.25,'yo',6,0],[179.25,0.25,'de',6,0],[179.5,0.25,'le',6,0],[179.75,0.25,'hee',3,1],[180.0,0.25,'yo',5,0],[180.25,0.25,'de',5,0],[180.5,0.25,'le',5,0],[180.75,0.25,'hee',3,1],[181.0,0.25,'yo',3,0],[181.25,0.25,'de',3,0],[181.5,0.25,'le',3,0],[181.75,0.25,'hee',3,1],[182.0,0.5,'le',1,0],[182.5,0.5,'hee',3,1],[183.0,0.5,'hoo',1,1],[184.0,0.25,'yo',6,0],[184.25,0.25,'de',6,0],[184.5,0.25,'le',6,0],[184.75,0.25,'hee',3,1],[185.0,0.25,'yo',3,0],[185.25,0.25,'de',3,0],[185.5,0.25,'le',3,0],[185.75,0.25,'hee',3,1],[186.0,0.25,'yo',1,0],[186.25,0.25,'de',1,0],[186.5,0.25,'le',1,0],[186.75,0.25,'hee',3,1],[187.0,0.25,'yo',6,0],[187.25,0.25,'de',6,0],[187.5,0.25,'le',6,0],[187.75,0.25,'hee',3,1],[188.0,0.25,'yo',5,0],[188.25,0.25,'de',5,0],[188.5,0.25,'le',5,0],[188.75,0.25,'hee',3,1],[189.0,0.25,'yo',3,0],[189.25,0.25,'de',3,0],[189.5,0.25,'le',3,0],[189.75,0.25,'hee',3,1],[190.0,0.5,'le',1,0],[190.5,0.5,'hee',3,1],[191.0,0.5,'hoo',1,1],[192.0,0.5,'le',1,0],[192.5,0.5,'hee',3,1],[193.0,0.5,'hoo',1,1],[194.0,0.25,'yo',6,0],[194.25,0.25,'de',6,0],[194.5,0.25,'le',6,0],[194.75,0.25,'hee',3,1],[195.0,0.25,'yo',3,0],[195.25,0.25,'de',3,0],[195.5,0.25,'le',3,0],[195.75,0.25,'hee',3,1],[196.0,0.25,'de',1,0],[196.25,0.25,'le',1,0],[196.5,0.25,'hee',3,1],[196.75,0.25,'hoo',3,1],[197.0,0.5,'hee',1,1],[197.5,0.5,'hoo',-4,1],[198,0.5,'le',-6,0],[198.5,3.5,'hee',-6,1],[202,0.5,'hoo',-6,1],[203.5,0.5,'yo',1,0],[204,0.5,'de',6,0]]},
+ {name:'Einen Jodler hör i gern',beats:true,cb:'aaaaaaaaeeeeaaaaaaaaaaaaddddaaaaeeeeeeeeeeeeaaaaaaaaaaaaddddaaaaeeeeeeeeeeeeaaaaeeeeeebbbbbbbbeeeeeeeebbbbbbbbeeaaaaeeeebbbbeeeeaaaaeeeebbbbeeee',tempo:[[0,112]],hold:143,holdLen:1.6,credit:'Einen Jodler hör i gern / I Love to Hear a Yodel: traditional folk song (piano arr., melody line transposed up a whole tone)',notes:[[1,0.75,'de',0,0],[1.75,0.25,'le',4,0],[2.0,0.5,'hee',-5,1],[2.5,0.5,'hoo',-3,1],[3.0,1.0,'hee',-5,1],[7,0.75,'yo',0,0],[7.75,0.25,'de',0,0],[8,0.75,'yo',-1,0],[9,0.5,'de',-1,0],[9.5,0.5,'le',2,0],[10,0.75,'hee',-5,1],[10.75,0.25,'yo',5,0],[11,0.5,'de',4,0],[11.5,0.5,'le',2,0],[12,3.0,'yo',0,0],[15.0,0.5,'de',-5,0],[15.5,0.5,'le',-3,0],[16,1.0,'yo',-5,0],[17.0,1.0,'de',4,0],[18.0,1.0,'le',-5,0],[19.0,1.0,'yo',0,0],[20,3.0,'de',4,0],[23.0,0.5,'le',2,0],[23.5,0.5,'yo',0,0],[24,1.0,'de',-3,0],[25.0,1.0,'le',0,0],[26.0,1.0,'yo',2,0],[27.0,1.0,'de',0,0],[28,3.0,'le',-3,0],[31.0,0.5,'yo',4,0],[31.5,0.5,'de',5,0],[32,1.0,'le',4,0],[33.0,1.0,'yo',2,0],[34.0,1.0,'de',5,0],[35.0,1.0,'le',4,0],[36,3.0,'yo',2,0],[39.0,0.5,'de',2,0],[39.5,0.5,'yo',4,0],[40,1.0,'de',2,0],[41.0,1.0,'le',-5,0],[42.0,1.5,'yo',4,0],[43.5,0.5,'de',2,0],[44,3.0,'le',0,0],[47.0,0.5,'hee',-5,1],[47.5,0.5,'hoo',-3,1],[48,1.0,'hee',-5,1],[49.0,1.0,'le',4,0],[50.0,1.0,'hee',-5,1],[51.0,1.0,'hoo',0,1],[52,3.0,'hee',4,1],[55.0,0.5,'hoo',2,1],[55.5,0.5,'hee',0,1],[56,1.0,'hoo',-3,1],[57.0,1.0,'hee',0,1],[58.0,1.0,'hoo',2,1],[59.0,1.0,'hee',0,1],[60,3.0,'hoo',-5,1],[63.0,0.5,'hee',4,1],[63.5,0.5,'hoo',5,1],[64,1.0,'hee',4,1],[65.0,1.0,'hoo',2,1],[66.0,1.0,'hee',5,1],[67.0,1.0,'hoo',4,1],[68,3.0,'hee',2,1],[71.0,0.5,'hoo',2,1],[71.5,0.5,'hee',4,1],[72,1.0,'hoo',2,1],[73.0,1.0,'hee',-5,1],[74.0,1.5,'hoo',4,1],[75.5,0.5,'hee',2,1],[76,3.0,'hoo',0,1],[79.0,1.0,'le',4,0],[80,0.25,'hee',-5,1],[80.25,0.25,'yo',2,0],[80.5,0.25,'de',-1,0],[80.75,0.25,'le',2,0],[81.0,0.25,'yo',6,0],[81.25,0.25,'de',2,0],[81.5,0.25,'le',-1,0],[81.75,0.25,'yo',2,0],[82.0,0.25,'de',4,0],[82.25,0.25,'le',2,0],[82.5,0.25,'yo',-1,0],[82.75,0.25,'de',-5,0],[83.0,0.25,'le',2,0],[83.25,0.25,'yo',-1,0],[83.5,0.25,'de',-5,0],[83.75,0.25,'le',-1,0],[84,0.25,'hee',-1,1],[84.25,0.25,'hoo',-5,1],[84.5,0.25,'yo',2,0],[84.75,0.25,'de',-1,0],[85.0,0.25,'le',2,0],[85.25,0.25,'hee',-5,1],[85.5,0.25,'le',2,0],[85.75,0.25,'hee',-1,1],[86.0,0.25,'hoo',0,1],[86.25,0.25,'hee',-3,1],[86.5,0.25,'hoo',-6,1],[86.75,0.25,'yo',2,0],[87,1,'de',2,0],[88,0.25,'hee',-5,1],[88.25,0.25,'yo',2,0],[88.5,0.25,'de',0,0],[88.75,0.25,'le',2,0],[89.0,0.25,'yo',6,0],[89.25,0.25,'de',2,0],[89.5,0.25,'le',0,0],[89.75,0.25,'yo',2,0],[90.0,0.25,'de',4,0],[90.25,0.25,'le',2,0],[90.5,0.25,'yo',-3,0],[90.75,0.25,'de',-6,0],[91.0,0.25,'le',2,0],[91.25,0.25,'yo',-3,0],[91.5,0.25,'de',-6,0],[91.75,0.25,'le',2,0],[92,0.25,'hee',-1,1],[92.25,0.25,'le',6,0],[92.5,0.25,'yo',2,0],[92.75,0.25,'de',0,0],[93.0,0.25,'le',2,0],[93.25,0.25,'hee',-5,1],[93.5,0.25,'le',2,0],[93.75,0.25,'hee',-3,1],[94.0,0.25,'hoo',-1,1],[94.25,0.25,'hee',-5,1],[94.5,0.25,'yo',2,0],[94.75,0.25,'de',0,0],[95,1,'le',2,0],[96,0.25,'hee',-5,1],[96.25,0.25,'yo',2,0],[96.5,0.25,'de',-1,0],[96.75,0.25,'le',2,0],[97.0,0.25,'yo',6,0],[97.25,0.25,'de',2,0],[97.5,0.25,'le',-1,0],[97.75,0.25,'yo',2,0],[98.0,0.25,'de',4,0],[98.25,0.25,'le',2,0],[98.5,0.25,'yo',-1,0],[98.75,0.25,'de',-5,0],[99.0,0.25,'le',2,0],[99.25,0.25,'yo',-1,0],[99.5,0.25,'de',-5,0],[99.75,0.25,'le',-1,0],[100,0.25,'hee',-1,1],[100.25,0.25,'hoo',-5,1],[100.5,0.25,'yo',2,0],[100.75,0.25,'de',-1,0],[101.0,0.25,'le',2,0],[101.25,0.25,'hee',-5,1],[101.5,0.25,'le',2,0],[101.75,0.25,'hee',-1,1],[102.0,0.25,'hoo',0,1],[102.25,0.25,'hee',-3,1],[102.5,0.25,'hoo',-6,1],[102.75,0.25,'yo',2,0],[103,1,'de',2,0],[104,0.25,'hee',-5,1],[104.25,0.25,'le',2,0],[104.5,0.25,'yo',0,0],[104.75,0.25,'de',2,0],[105.0,0.25,'le',6,0],[105.25,0.25,'yo',2,0],[105.5,0.25,'de',0,0],[105.75,0.25,'le',2,0],[106.0,0.25,'yo',4,0],[106.25,0.25,'de',2,0],[106.5,0.25,'le',-3,0],[106.75,0.25,'yo',-6,0],[107.0,0.25,'de',2,0],[107.25,0.25,'le',-3,0],[107.5,0.25,'yo',2,0],[107.75,0.25,'de',2,0],[108,0.5,'le',2,0],[108.5,0.5,'hee',2,1],[109.0,0.5,'hoo',-3,1],[109.5,0.5,'hee',-6,1],[110.0,1.0,'hoo',-5,1],[111.0,0.75,'hee',-5,1],[111.75,0.25,'hoo',-5,1],[112,0.5,'le',4,0],[112.5,0.25,'hee',-5,1],[112.75,0.25,'hoo',-5,1],[113.0,0.5,'hee',-5,1],[113.5,0.5,'hoo',0,1],[114.0,1.0,'le',4,0],[115.0,0.75,'hee',-5,1],[115.75,0.25,'hoo',-5,1],[116,0.5,'le',2,0],[116.5,0.25,'hee',-5,1],[116.75,0.25,'hoo',-5,1],[117.0,0.5,'hee',-5,1],[117.5,0.5,'hoo',-1,1],[118.0,1.0,'le',2,0],[119.0,0.75,'hee',-5,1],[119.75,0.25,'hoo',-5,1],[120,0.75,'hee',-6,1],[120.75,0.25,'hoo',2,1],[121.0,0.5,'hee',-3,1],[121.5,0.5,'hoo',-6,1],[122.0,0.75,'hee',2,1],[122.75,0.25,'hoo',0,1],[123.0,0.5,'hee',-3,1],[123.5,0.5,'hoo',-6,1],[124,0.5,'hee',-5,1],[124.5,0.25,'hoo',-5,1],[124.75,0.25,'hee',-5,1],[125.0,0.5,'hoo',-5,1],[125.5,0.5,'hee',-3,1],[126.0,1.0,'hoo',-2,1],[127.0,0.75,'hee',-5,1],[127.75,0.25,'hoo',-5,1],[128,0.5,'le',4,0],[128.5,0.25,'hee',-5,1],[128.75,0.25,'hoo',-5,1],[129.0,0.5,'hee',-5,1],[129.5,0.5,'hoo',0,1],[130.0,1.0,'le',4,0],[131.0,0.75,'hee',-5,1],[131.75,0.25,'hoo',-5,1],[132,0.5,'le',2,0],[132.5,0.25,'hee',-5,1],[132.75,0.25,'hoo',-5,1],[133.0,0.5,'hee',-5,1],[133.5,0.5,'hoo',-1,1],[134.0,1.0,'le',2,0],[135.0,0.75,'hee',-5,1],[135.75,0.25,'hoo',-5,1],[136,0.75,'hee',-6,1],[136.75,0.25,'hoo',2,1],[137.0,0.5,'hee',-3,1],[137.5,0.5,'hoo',-6,1],[138.0,0.75,'hee',2,1],[138.75,0.25,'hoo',0,1],[139.0,0.5,'hee',-3,1],[139.5,0.5,'hoo',-6,1],[140,0.5,'hee',-5,1],[140.5,2.5,'hoo',6,1],[143.0,1.0,'hee',-5,1]]},
+ {name:'Free yodel',free:true,shift:1,beats:true,cb:'ccccFFFFccGGcccc',tempo:[[0,124]],notes:[]}
+];
+// tempo map for the song (quarter-note beats counted from bar 1): 142 -> 145 (bar 41 beat 3) -> 156 (bar 50 beat 3) -> 162 (bar 56)
+const TEMPO0=[[0,142],[162,145],[198,156],[220,162]];
+let TEMPO=TEMPO0;
+let SPD=1;
+function beatSec(b){let s=0;for(let i=0;i<TEMPO.length;i++){const a=TEMPO[i][0],bpm=TEMPO[i][1],e=i+1<TEMPO.length?TEMPO[i+1][0]:1e9;if(b<=a)break;s+=(Math.min(b,e)-a)*60/bpm}return s/SPD}
+
+// oom-pah backing (the piano left hand): bass note on each beat, chord stab on the off-beat. chords string = one letter per half bar (D or A7)
+let backBus=null;
+function startBacking(cb,when,holdAt,holdLen,loop){
+ const ctxT=ctx.currentTime+Math.max(0,(when-performance.now())/1000);
+ const bus=ctx.createGain();bus.gain.value=.12;
+ const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=1500;
+ bus.connect(lp).connect(ctx.destination);
+ const hz=m=>440*Math.pow(2,(m-69)/12);
+ const note=(m,b,dur,type,vol)=>{
+  const t=ctxT+beatSec(b),e=ctxT+beatSec(b+dur);
+  const g=ctx.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.01);
+  g.gain.linearRampToValueAtTime(vol*.4,t+(e-t)*.5);g.gain.linearRampToValueAtTime(0,e);
+  g.connect(bus);
+  const o=ctx.createOscillator();o.type=type;o.frequency.value=hz(m);o.connect(g);o.start(t);o.stop(e+.02);
+  o.onended=()=>{try{g.disconnect()}catch(x){}};
+ };
+ // chord letters: D, A (A7), F, B (B-flat), C (C7)
+ const CH={D:[62,66,69],A:[61,64,67],F:[60,65,69],B:[62,65,70],C:[64,67,70],c:[64,67,72],G:[62,67,71],m:[64,69,72],g:[60,63,69],h:[63,67,70],j:[62,65,68],k:[60,63,68],n:[63,67,73],a:[63,66,71],e:[61,66,70],d:[64,68,71],b:[65,68,71]};
+ const BS={D:[38,45],A:[45,52],F:[41,48],B:[46,53],C:[48,55],c:[48,55],G:[43,50],m:[45,52],g:[41,48],h:[39,46],j:[46,53],k:[44,51],n:[39,46],a:[47,54],e:[42,49],d:[40,47],b:[37,44]};
+ // schedule a few seconds ahead at a time so the audio thread is never flooded
+ let beat=0;const total=loop?Infinity:Math.min(cb.length,holdAt+1);
+ const bk={bus,lp,timer:0};backBus=bk;
+ const pump=()=>{
+  const horizon=ctx.currentTime-ctxT+3;
+  while(beat<total&&beatSec(beat)<horizon){
+   const c=cb[loop?beat%cb.length:beat];
+   if(beat===holdAt){note(BS[c][0],beat,holdLen,'triangle',.9);CH[c].forEach(x=>note(x,beat,holdLen,'sawtooth',.16))}
+   else{note(BS[c][beat&1],beat,.45,'triangle',.9);CH[c].forEach(x=>note(x,beat+.5,.4,'sawtooth',.14))}
+   beat++;
+  }
+  if(beat>=total)clearInterval(bk.timer);
+ };
+ pump();bk.timer=setInterval(pump,400);
+}
+function stopBacking(){if(backBus){const b=backBus;backBus=null;clearInterval(b.timer);try{b.bus.gain.cancelScheduledValues(ctx.currentTime);b.bus.gain.setTargetAtTime(0,ctx.currentTime,.03)}catch(e){}setTimeout(()=>{try{b.bus.disconnect()}catch(e){}},400)}}
+
+// ---------------------------------------------------------------- audio
+function wave(a){const re=new Float32Array(a.length+1),im=new Float32Array(a.length+1);a.forEach((v,i)=>im[i+1]=v);return ctx.createPeriodicWave(re,im)}
+
+function build(){
+ ctx=new (window.AudioContext||window.webkitAudioContext)();
+ const gn=(v=0)=>{const g=ctx.createGain();g.gain.value=v;return g};
+ const bp=(f=1000,q=1)=>{const x=ctx.createBiquadFilter();x.type='bandpass';x.frequency.value=f;x.Q.value=q;return x};
+ const m=gn(0);
+ // lateral "l" gets a dip around 1.9 kHz (controlled in tick)
+ const ln=ctx.createBiquadFilter();ln.type='peaking';ln.frequency.value=1900;ln.Q.value=2;ln.gain.value=0;
+ const vlp=ctx.createBiquadFilter();vlp.type='lowpass';vlp.frequency.value=4100;vlp.Q.value=.5; // open but not shrill
+ m.connect(vlp).connect(ln).connect(ctx.destination);
+
+ // voice sources: chest = soft rolled-off harmonic series, falsetto = near-sine with a hint of 2nd/3rd harmonic
+ const vb=gn(1);
+ const chest=ctx.createOscillator();chest.setPeriodicWave(wave(Array.from({length:40},(_,i)=>1/Math.pow(i+1,1.725))));
+ const fals=ctx.createOscillator();fals.setPeriodicWave(wave([1,.4,.18,.08,.04]));
+ const cg=gn(),fg=gn();
+ chest.connect(cg);cg.connect(vb);
+ fals.connect(fg);fg.connect(vb);
+ // singer's formant: extra carry around 2.9 kHz, chest voice only
+ const sf=bp(2900,4),sg=gn(.2);cg.connect(sf);sf.connect(sg);sg.connect(m);
+
+ // noise (breath and consonants)
+ const nb=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),d=nb.getChannelData(0);
+ for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+ const ns=ctx.createBufferSource();ns.buffer=nb;ns.loop=true;
+ const ag=gn();ns.connect(ag);
+
+ // three moving formants, one set for voice and one for breath
+ const vf=[],af=[],vgn=[],ups=[];
+ for(let i=0;i<3;i++){
+  const f=bp(),g=gn(FG[i]);vb.connect(f);f.connect(g);g.connect(m);vf.push(f);vgn.push(g);
+  const f2=bp(),g2=gn(FG[i]*2);ag.connect(f2);f2.connect(g2);g2.connect(m);af.push(f2);
+ }
+ // fixed upper formants (F4, F5) for a fuller, more vocal timbre
+ [[3500,7,.07],[4600,9,.03]].forEach(([fr,q,gv])=>{const x=bp(fr,q),g=gn(gv);vb.connect(x);x.connect(g);g.connect(m);ups.push([g,gv])});
+
+ // "d" burst: noise shaped around the next vowel's F2 and F3, plus a broad top band, softened by a low-pass
+ const bg=gn(),bf=[bp(2000,3),bp(3000,3),bp(4200,1)];
+ bf.forEach((x,i)=>{const g=gn([.6,.6,.5][i]);ns.connect(x);x.connect(g);g.connect(bg)});
+ const blp=ctx.createBiquadFilter();blp.type='lowpass';blp.frequency.value=5500;bg.connect(blp);
+ // the burst goes around the voice's low-pass so the bright 'd' click survives
+ const bout=gn(.2);blp.connect(bout);bout.connect(ln);
+
+ chest.start();fals.start();ns.start();
+ A={vlp,m,ln,chest,fals,cg,fg,ag,vf,af,bf,bg,vgn,ups,sg};
+}
+function init(){if(!ctx)build();if(ctx.state!=='running'&&!paused)ctx.resume();}
+// pressing a syllable always starts a fresh note (consonant onset and all)
+function press(i){init();cur=SYL[i];t0=performance.now();held=i;}
+function release(i){if(held===i)held=-1;}
+
+// ---------------------------------------------------------------- controls
+const $=id=>document.getElementById(id);
+const row=$('row'),pad=$('pad'),slC=$('slC'),slF=$('slF'),kC=$('kC'),kF=$('kF');
+
+// vowel buttons: one finger can slide across them, and each change starts a new note
+const btns=SYL.map(s=>{const b=document.createElement('button');b.className='btn';b.textContent=s.n;row.appendChild(b);return b});
+let btnFal=null;
+function paintBtns(){
+ if(btnFal===fal)return;
+ btnFal=fal;
+ btns.forEach((b,i)=>{
+  const c=COL[SYL[i].n];
+  b.style.background=fal?pastel(c):c;
+  b.style.borderColor=c;
+  b.style.color=fal?'#222':'#fff';
+  b.style.textShadow=fal?'none':'0 1px 2px rgba(0,0,0,.45)';
+ });
+}
+const ptr=new Map();
+const paint=()=>{const on=[...ptr.values()];btns.forEach((b,i)=>b.classList.toggle('on',on.includes(i)))};
+const hit=e=>{let k=0;btns.forEach((b,i)=>{if(e.clientX>=b.getBoundingClientRect().left)k=i});return k};
+// touching a button or slider takes over from auto-play
+function autoOff(){
+ if(!autoOn)return;
+ autoOn=false;
+ if(autoHeld){autoHeld=false;autoNote=null;release(held)}
+ const b=$('auto');b.textContent='auto off';b.classList.remove('on');
+}
+row.addEventListener('pointerdown',e=>{autoOff();e.preventDefault();row.setPointerCapture(e.pointerId);const i=hit(e);ptr.set(e.pointerId,i);press(i);paint()});
+row.addEventListener('pointermove',e=>{
+ if(!ptr.has(e.pointerId))return;
+ const i=hit(e),o=ptr.get(e.pointerId);
+ if(i!==o){release(o);ptr.set(e.pointerId,i);press(i);paint()}
+});
+const rup=e=>{if(!ptr.has(e.pointerId))return;release(ptr.get(e.pointerId));ptr.delete(e.pointerId);paint()};
+row.addEventListener('pointerup',rup);row.addEventListener('pointercancel',rup);
+
+// two pitch sliders: left = chest, right = falsetto; height sets pitch, and sliding sideways switches register
+function setPad(e){
+ const rc=slC.getBoundingClientRect(),rf=slF.getBoundingClientRect();
+ fal=e.clientX>(rc.right+rf.left)/2;
+ const v=1-clamp((e.clientY-rc.top)/rc.height,0,1);
+ let s=clamp(-(R+1)+(2*R+2)*v,-R,R);if(snap)s+=(Math.round(s)-s)*.7;target=s;
+}
+pad.addEventListener('pointerdown',e=>{autoOff();pad.setPointerCapture(e.pointerId);drag=true;init();setPad(e)});
+pad.addEventListener('pointermove',e=>{if(drag)setPad(e)});
+const sup=()=>{drag=false};pad.addEventListener('pointerup',sup);pad.addEventListener('pointercancel',sup);
+$('snap').addEventListener('click',e=>{snap=!snap;e.target.textContent='snap '+(snap?'on':'off')});
+
+$('full').addEventListener('click',async()=>{
+ const d=document,el=d.documentElement;
+ try{
+  if(d.fullscreenElement||d.webkitFullscreenElement){(d.exitFullscreen||d.webkitExitFullscreen).call(d)}
+  else{await (el.requestFullscreen||el.webkitRequestFullscreen).call(el);try{await screen.orientation.lock('landscape')}catch(_){}}
+ }catch(_){$('full').textContent='fullscreen n/a'}
+});
+
+// desktop testing: a s d f space = syllables, hold Shift for falsetto
+const KEYS='asdf ';
+addEventListener('keydown',e=>{if(e.repeat)return;if(e.key==='Shift')fal=true;const i=KEYS.indexOf(e.key.toLowerCase());if(i>=0){e.preventDefault();press(i)}});
+addEventListener('keyup',e=>{if(e.key==='Shift')fal=false;const i=KEYS.indexOf(e.key.toLowerCase());if(i>=0)release(i)});
+
+// ---------------------------------------------------------------- game
+const APPROACH=2.2;   // seconds for a cue to travel from the right edge to the hit line
+const HITX=16;        // hit line position (px) inside the lane
+const songSel=$('song');
+SONGS.forEach((s,i)=>songSel.add(new Option(s.name,i)));
+let paused=false,pausedAt=0;
+const sparks=[];
+let play=null,result=null,flashes=[],lastMs=performance.now();
+
+function startSong(){
+ init();
+ const s=SONGS[+songSel.value];
+ SPD=+$('speed').value;
+ TEMPO=s.tempo||TEMPO0;SHIFT=s.shift||0;
+ const notes=s.notes.map(([t,d,v,p,f])=>s.beats
+  ?{t:beatSec(t),d:beatSec(t+d)-beatSec(t),v,p,f:!!f,w:0,ep:0,er:0,ev:0,done:false}
+  :{t:t/SPD,d:d/SPD,v,p,f:!!f,w:0,ep:0,er:0,ev:0,done:false});
+ const free=!!s.free;
+ const startMs=performance.now()+(free?60:3000);
+ const cbs=s.cb||(s.chords?s.chords.split('').map(c=>c+c).join(''):null);
+ if(cbs)startBacking(cbs,startMs,free?1e9:(s.hold!=null?s.hold:cbs.length-4),s.holdLen||3.5,free);
+ play={notes,start:startMs,free,end:free?Infinity:Math.max(...notes.map(n=>n.t+n.d))+1.2,score:0,max:notes.length*1000,sw:0,sp:0,sr:0,sv:0};
+ result=null;flashes=[];
+ $('start').textContent='Stop';$('pause').disabled=false;songSel.disabled=true;$('speed').disabled=true;$('score').textContent='0';
+}
+function stopSong(finished){
+ SHIFT=0;
+ if(paused){paused=false;if(ctx)ctx.resume()}
+ $('pause').disabled=true;$('pause').textContent='Pause';
+ if(finished&&play){
+  const w=Math.max(play.sw,1e-6);
+  result={score:play.score,max:play.max,pct:Math.round(100*play.score/play.max),
+   p:Math.round(100*play.sp/w),r:Math.round(100*play.sr/w),v:Math.round(100*play.sv/w)};
+ }
+ play=null;stopBacking();if(autoHeld){autoHeld=false;autoNote=null;release(held)};btns.forEach(b=>b.classList.remove('on'));autoShown=false
+ $('start').textContent='Start';songSel.disabled=false;$('speed').disabled=false;
+}
+// leaving the tab: let go of everything, end any running song and silence the audio
+function hush(){
+ if(play)stopSong(false);
+ held=-1;ptr.clear();drag=false;paint();
+ if(ctx&&ctx.state==='running')ctx.suspend();
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hush()});
+window.addEventListener('pagehide',hush);
+$('start').addEventListener('click',()=>{if(play)stopSong(false);else startSong()});
+// pause: freeze the song clock and suspend all audio (backing included), resume where it left off
+$('pause').addEventListener('click',()=>{
+ if(!play)return;
+ if(!paused){
+  paused=true;pausedAt=performance.now();
+  if(autoHeld){autoHeld=false;autoNote=null}
+  if(held>=0)release(held);held=-1;ptr.clear();drag=false;paint();
+  btns.forEach(b=>b.classList.remove('on'));
+  if(ctx)ctx.suspend();
+  $('pause').textContent='Play';
+ }else{
+  const go=()=>{if(!paused||!play)return;play.start+=performance.now()-pausedAt;paused=false;$('pause').textContent='Pause'};
+  if(ctx)ctx.resume().then(go,go);else go();
+ }
+});
+
+const GRADES=[[.9,'PERFECT','#e0a800'],[.7,'GREAT','#3aa86a'],[.4,'GOOD','#2f8fd8'],[.01,'OK','#8a8a8a'],[-1,'MISS','#d6453d']];
+
+// each frame: score whichever note is active, from how well pitch, register and vowel match
+let autoShown=false,autoOn=false,autoNote=null,autoHeld=false;
+$('auto').addEventListener('click',e=>{autoOn=!autoOn;e.target.textContent=autoOn?'auto on':'auto off';e.target.classList.toggle('on',autoOn)});
+function gameFrame(ms,dt){
+ if(!play)return;
+ const T=(ms-play.start)/1000;
+ // auto-play: perform the active note ourselves (vowel, register and pitch), and let go in the gaps
+ if(autoOn){
+  const n=play.notes.find(x=>!x.done&&T>=x.t&&T<x.t+x.d);
+  if(n){
+   if(autoNote!==n){autoNote=n;autoHeld=true;press(SYL.findIndex(s=>s.n===n.v))}
+   fal=n.f;target=n.p;
+  }else if(autoHeld){autoHeld=false;autoNote=null;release(held)}
+ }else if(autoHeld){autoHeld=false;autoNote=null;release(held)}
+ if(autoOn||autoShown){autoShown=autoOn&&autoHeld;btns.forEach((b,i)=>b.classList.toggle('on',autoShown&&held===i))}
+ for(const n of play.notes){
+  if(n.done)continue;
+  const a=n.t+Math.min(.12,n.d*.3),b=n.t+n.d;
+  if(T>=a&&T<=b){
+   let sp=0,sr=0,sv=0;
+   if(held>=0){ // sound has to be playing to earn anything
+    sp=clamp(1-Math.max(0,Math.abs(semis-n.p)-.4)/1.6,0,1);   // full marks within 0.4 semitone, none beyond 2
+    sr=fal===n.f?1:0;
+    sv=cur&&cur.n===n.v?1:0;
+   }
+   n.w+=dt;n.ep+=sp*dt;n.er+=sr*dt;n.ev+=sv*dt;
+  }
+  if(T>b){
+   n.done=true;
+   const frac=n.w>0?(.4*n.ep+.3*n.er+.3*n.ev)/n.w:0;   // pitch 40%, register 30%, vowel 30%
+   play.score+=Math.round(1000*frac);
+   play.sw+=n.w;play.sp+=n.ep;play.sr+=n.er;play.sv+=n.ev;
+   const g=GRADES.find(x=>frac>=x[0]);
+   flashes.push({t:ms,text:g[1],col:g[2],p:n.p});
+   $('score').textContent=play.score;
+  }
+ }
+ if(T>play.end)stopSong(true);
+}
+
+// ---------------------------------------------------------------- lane drawing
+const lane=$('lane'),lc=lane.getContext('2d');
+function rr(c,x,y,w,h,r){r=Math.min(r,w/2,h/2);c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function drawLane(ms){
+ const r=lane.getBoundingClientRect(),dpr=window.devicePixelRatio||1,W=r.width,H=r.height;
+ if(!W||!H)return;
+ const pw=Math.round(W*dpr),ph=Math.round(H*dpr);
+ if(lane.width!==pw||lane.height!==ph){lane.width=pw;lane.height=ph}
+ lc.setTransform(dpr,0,0,dpr,0,0);
+ lc.clearRect(0,0,W,H);
+ const cs=getComputedStyle(document.documentElement);
+ const fg=cs.getPropertyValue('--fg').trim()||'#2a2a28',bd=cs.getPropertyValue('--bd').trim()||'#c9c4b8';
+ const yOf=p=>(1-(p+R+1)/(2*R+2))*H;   // same mapping as the sliders: one semitone of margin above the top note and below the bottom note
+ lc.textBaseline='middle';
+
+ // semitone gridlines (they line up with the slider ticks)
+ lc.strokeStyle=bd;
+ for(let p=-R;p<=R;p++){lc.globalAlpha=p===0?.9:.45;lc.lineWidth=p===0?1.5:1;const y=yOf(p);lc.beginPath();lc.moveTo(0,y);lc.lineTo(W,y);lc.stroke()}
+ lc.globalAlpha=1;
+
+ // hit line
+ lc.strokeStyle=fg;lc.globalAlpha=.6;lc.lineWidth=2;lc.beginPath();lc.moveTo(HITX,0);lc.lineTo(HITX,H);lc.stroke();lc.globalAlpha=1;
+
+ let T=0;
+ if(play){
+  T=(ms-play.start)/1000;
+  const speed=(W-HITX)/APPROACH,h=Math.max(14,H/(2*R+2)*.82);
+  lc.font='bold 12px system-ui,sans-serif';
+  for(const n of play.notes){
+   const x0=HITX+(n.t-T)*speed,x1=x0+n.d*speed;
+   if(x1<HITX||x0>W)continue;
+   const dx=Math.max(x0,HITX),w=x1-dx;
+   if(w<4)continue;
+   const y=yOf(n.p),col=COL[n.v],active=T>=n.t&&T<=n.t+n.d;
+   rr(lc,dx,y-h/2,w,h,h/2);
+   lc.fillStyle=n.f?pastel(col):col;lc.fill();
+   lc.lineWidth=active?3:2;lc.strokeStyle=active?fg:col;lc.stroke();
+   if(w>38){lc.fillStyle=n.f?'#222':'#fff';lc.fillText(n.v.toUpperCase(),dx+9,y)}
+  }
+  if(T<0){
+   lc.font='bold 64px system-ui,sans-serif';lc.textAlign='center';lc.fillStyle=fg;lc.globalAlpha=.4;
+   lc.fillText(String(Math.ceil(-T)),W/2,H/2);lc.globalAlpha=1;lc.textAlign='left';
+  }
+ }
+
+ // your current pitch: a marker on the hit line, coloured like the vowel you are singing
+ const my=yOf(semis);
+ lc.beginPath();lc.arc(HITX,my,9,0,Math.PI*2);
+ if(held>=0&&cur){lc.fillStyle=fal?pastel(COL[cur.n]):COL[cur.n];lc.fill()}
+ lc.lineWidth=2.5;lc.strokeStyle=fg;lc.stroke();
+
+ // sparkles around the marker while you are right on target (pitch, register and vowel all match the active note)
+ {
+  let perfect=false;
+  if(play&&!paused&&held>=0&&cur){
+   const an=play.notes.find(x=>T>=x.t&&T<=x.t+x.d);
+   perfect=!!an&&Math.abs(semis-an.p)<=.4&&fal===an.f&&cur.n===an.v;
+  }
+  if(perfect){
+   for(let k=0;k<2;k++){
+    const a=Math.random()*Math.PI*2,rad=10+Math.random()*6;
+    sparks.push({x:HITX+Math.cos(a)*rad,y:my+Math.sin(a)*rad,vx:Math.cos(a)*(10+Math.random()*25),vy:Math.sin(a)*(10+Math.random()*25)-8,t:ms,life:450+Math.random()*350,s:2.5+Math.random()*3.5});
+   }
+  }
+  for(let i=sparks.length-1;i>=0;i--){
+   const s=sparks[i],age=ms-s.t;
+   if(age>s.life||paused&&false){sparks.splice(i,1);continue}
+   const f=age/s.life,tt=age/1000,x=s.x+s.vx*tt,y=s.y+s.vy*tt;
+   lc.globalAlpha=1-f;lc.fillStyle=f<.5?'#fff3b0':'#ffd23f';
+   const r=s.s*(1-.5*f);
+   lc.beginPath();lc.moveTo(x,y-r*1.6);lc.lineTo(x+r*.35,y-r*.35);lc.lineTo(x+r*1.6,y);lc.lineTo(x+r*.35,y+r*.35);lc.lineTo(x,y+r*1.6);lc.lineTo(x-r*.35,y+r*.35);lc.lineTo(x-r*1.6,y);lc.lineTo(x-r*.35,y-r*.35);lc.closePath();lc.fill();
+  }
+  lc.globalAlpha=1;
+ }
+ // judgement flashes
+ lc.font='bold 14px system-ui,sans-serif';
+ for(let i=flashes.length-1;i>=0;i--){
+  const f=flashes[i],age=(ms-f.t)/1000;
+  if(age>1){flashes.splice(i,1);continue}
+  lc.globalAlpha=1-age;lc.fillStyle=f.col;lc.fillText(f.text,HITX+26,yOf(f.p)-age*16);
+ }
+ lc.globalAlpha=1;
+
+ lc.textAlign='center';
+ if(play&&play.free){
+  lc.font='16px system-ui,sans-serif';lc.fillStyle=fg;lc.globalAlpha=.4;
+  lc.fillText('Free yodel: sing along, press Stop when you are done',W/2,H/2);lc.globalAlpha=1;
+ }
+ if(!play&&!result){
+  lc.font='16px system-ui,sans-serif';lc.fillStyle=fg;lc.globalAlpha=.55;
+  lc.fillText('Pick a song and press Start',W/2,H/2);lc.globalAlpha=1;
+ }
+ if(result){
+  lc.fillStyle=bd;lc.globalAlpha=.35;rr(lc,W/2-170,H/2-54,340,108,16);lc.fill();lc.globalAlpha=1;
+  lc.fillStyle=fg;
+  lc.font='bold 24px system-ui,sans-serif';lc.fillText('Finished!',W/2,H/2-30);
+  lc.font='18px system-ui,sans-serif';lc.fillText('Score '+result.score+' / '+result.max+'  ('+result.pct+'%)',W/2,H/2);
+  lc.font='14px system-ui,sans-serif';lc.fillText('Pitch '+result.p+'%  ·  Register '+result.r+'%  ·  Vowel '+result.v+'%',W/2,H/2+28);
+ }
+ {const cr=SONGS[+songSel.value].credit;if(cr){lc.textAlign='right';lc.font='11px system-ui,sans-serif';lc.fillStyle=fg;lc.globalAlpha=.5;lc.fillText(cr,W-8,H-8);lc.globalAlpha=1}}
+ lc.textAlign='left';
+}
+
+// ---------------------------------------------------------------- main loop
+function tick(){
+ requestAnimationFrame(tick);
+ semis+=(target-semis)*.35;
+ const nowMs=paused?pausedAt:performance.now();
+ const dt=Math.min(.05,(nowMs-lastMs)/1000);lastMs=nowMs;
+
+ // register break: when the register flips, add a short volume dip, a puff of breath and a pitch overshoot
+ if(held>=0&&prevHeld<0)soundSince=nowMs;prevHeld=held;
+ // the break only happens when you cross registers on a note that is already sounding (not after a rest, not on a fresh onset)
+ if(fal!==prevFal){if(held>=0&&nowMs-soundSince>80){breakT=nowMs;breakDir=fal?1:-1}prevFal=fal}
+ const ba=nowMs-breakT;
+ const up=breakDir>0; // chest to falsetto keeps the full crack; falsetto to chest is a gentler drop
+ const dip=up?(ba<60?1-.85*Math.sin(Math.PI*ba/60):1):(ba<40?1-.4*Math.sin(Math.PI*ba/40):1);
+ const puff=up&&ba<45?.14*Math.sin(Math.PI*ba/45):0;
+
+ let p=B4*2**((semis+SHIFT-12)/12),voiced=0,noise=0,burst=0,t=0,closed=false;
+ if(ba<110)p*=2**(breakDir*(up?90:20)*Math.exp(-ba/35)/1200);
+ if(cur){
+  const e=nowMs-t0,vt=(e-500)/1000;
+  if(vt>0)p*=2**(clamp(vt/.5,0,1)*9*Math.sin(2*Math.PI*5.5*vt)/1200); // vibrato after 0.5 s
+  const vIn=clamp((e-cur.vs)/Math.max(cur.vr,12),0,1);
+  t=clamp((e-cur.vs-cur.on)/cur.gl,0,1);
+  voiced=vIn*(cur.ol+(1-cur.ol)*t);
+  if(cur.c>0&&e<cur.vs){voiced=.05;closed=true} // faint "voice bar" while a voiced stop is closed
+  const br=fal?.03:0;
+  noise=(cur.asp?.12+(br-.12)*vIn:br*vIn)+puff;
+  burst=cur.b&&e>=cur.c&&e<cur.c+cur.b?Math.exp(-(e-cur.c)/6):0;
+ }
+ if(fal)p*=2; // falsetto sits an octave above chest at the same height
+ if(A){
+  const now=ctx.currentTime,T=(prm,v,tc=.01)=>prm.setTargetAtTime(v,now,tc);
+  if(cur){
+   for(let i=0;i<3;i++){
+    let f=closed&&cur.ci?cur.ci[i]:cur.fi[i]+(cur.ft[i]-cur.fi[i])*t;
+    if(fal&&i===0)f=Math.max(f,p); // F1 follows the pitch in falsetto
+    T(A.vf[i].frequency,f);T(A.vf[i].Q,f/BW[i]);T(A.af[i].frequency,f);T(A.af[i].Q,f/BW[i]);
+   }
+   const gs=cur.fg||FG,up=cur.up===undefined?1:cur.up; // per-syllable formant levels; 'oo' is darker
+   for(let i=0;i<3;i++)T(A.vgn[i].gain,gs[i]);
+   A.ups.forEach(([g,gv])=>T(g.gain,gv*up));T(A.sg.gain,.2*up);
+   T(A.bf[0].frequency,cur.fi[1]);T(A.bf[1].frequency,cur.fi[2]);
+  }
+  T(A.chest.frequency,p,.012);T(A.fals.frequency,p,.012);
+  T(A.cg.gain,fal?0:voiced*dip*2.1,.01);T(A.fg.gain,fal?voiced*dip*.9:0,.01);
+  T(A.ag.gain,noise*.6);T(A.bg.gain,burst*.3,.004);
+  T(A.vlp.frequency,fal?4800:4100,.03);
+  T(A.ln.gain,cur&&cur.lat?-14*(1-t):0);
+  T(A.m.gain,held>=0?.192:0,held>=0?.006:.1);
+ }
+ const midi=69+12*Math.log2(p/440),n=Math.round(midi);
+ const top=(1-(target+R+1)/(2*R+2))*100+'%';
+ kF.style.top=kC.style.top=top;
+ const sc=held>=0?COL[SYL[held].n]:null;
+ slC.style.backgroundColor=sc||'';slF.style.backgroundColor=sc?pastel(sc):'';
+ kF.style.display=fal?'block':'none';kC.style.display=fal?'none':'block';
+
+ paintBtns();
+ if(!paused)gameFrame(nowMs,dt);
+ drawLane(nowMs);
+}
+tick();
+</script>
+</body>
+</html>

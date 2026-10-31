@@ -2,12 +2,108 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rebecca Mestav</title>
-<meta http-equiv="refresh" content="0; url=alphabet-snake/">
 <link rel="icon" href="alphabet-snake/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: one narrow column, left-aligned; a plain index of projects with hairline separators */
+:root {
+  --bg: #f6f7f5;
+  --fg: #1d211f;
+  --muted: #69716c;
+  --rule: #dde1dd;
+  --accent: #2b6e8f;
+  --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141716; --fg: #e8ebe9; --muted: #98a19c; --rule: #2a2f2c; --accent: #7cc0de;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141716; --fg: #e8ebe9; --muted: #98a19c; --rule: #2a2f2c; --accent: #7cc0de;
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--display);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding-block: clamp(3rem, 12vh, 7rem) 4rem;
+  display: grid;
+  gap: 3.5rem;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+ul { list-style: none; margin: 0; padding: 0; }
+li { border-top: 1px solid var(--rule); }
+li:last-child { border-bottom: 1px solid var(--rule); }
+li a {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1rem 0;
+  color: inherit;
+  text-decoration: none;
+}
+.name {
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: color 0.15s;
+}
+.arrow {
+  font-family: var(--mono);
+  color: var(--muted);
+  transition: transform 0.15s, color 0.15s;
+}
+li a:hover .name, li a:focus-visible .name { color: var(--accent); }
+li a:hover .arrow, li a:focus-visible .arrow { color: var(--accent); transform: translateX(3px); }
+li a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+@media (prefers-reduced-motion: reduce) { .name, .arrow { transition: none; } }
+</style>
 </head>
 <body>
-<p><a href="alphabet-snake/">Alphabet Snake</a></p>
+<main>
+  <h1>Rebecca Mestav</h1>
+
+  <section aria-labelledby="projects">
+    <h2 id="projects">Projects</h2>
+    <ul>
+      <li><a href="alphabet-snake/"><span class="name">Alphabet Snake</span><span class="arrow" aria-hidden="true">→</span></a></li>
+      <li><a href="yodeler/"><span class="name">Yodeler</span><span class="arrow" aria-hidden="true">→</span></a></li>
+      <li><a href="ocean-planet/"><span class="name">Ocean Planet</span><span class="arrow" aria-hidden="true">→</span></a></li>
+      <li><a href="crochet-sim/"><span class="name">Crochet Sim</span><span class="arrow" aria-hidden="true">→</span></a></li>
+    </ul>
+  </section>
+</main>
 </body>
 </html>
