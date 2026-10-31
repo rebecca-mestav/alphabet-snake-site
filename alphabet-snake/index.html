@@ -97,6 +97,30 @@ body {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Alphabet Snake">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+// Every sound the game makes goes through the page's audio contexts, which
+// keep playing while the tab is in the background (the game itself stops
+// running then), so they're paused while the page is hidden.
+(function () {
+  var Original = window.AudioContext || window.webkitAudioContext;
+  if (!Original) return;
+  var contexts = window.alphabetSnakeAudio = [];
+  function Tracked(options) {
+    var context = new Original(options);
+    contexts.push(context);
+    return context;
+  }
+  Tracked.prototype = Original.prototype;
+  window.AudioContext = Tracked;
+  if (window.webkitAudioContext) window.webkitAudioContext = Tracked;
+  document.addEventListener('visibilitychange', function () {
+    contexts.forEach(function (context) {
+      if (context.state === 'closed') return;
+      if (document.hidden) context.suspend(); else context.resume();
+    });
+  });
+})();
+</script>
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -115,7 +139,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18461376,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"serviceWorker":"index.service.worker.js"};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18462128,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"serviceWorker":"index.service.worker.js"};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
