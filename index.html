@@ -88,12 +88,19 @@ li a {
 li a:hover .name, li a:focus-visible .name { color: var(--accent); }
 li a:hover .arrow, li a:focus-visible .arrow { color: var(--accent); transform: translateX(3px); }
 li a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.notify { margin: 0.9rem 0 0; font-size: 1.05rem; }
+.notify a { color: var(--accent); text-decoration: underline; text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+.notify a:hover { text-decoration-thickness: 2px; }
+.notify a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .name, .arrow { transition: none; } }
 </style>
 </head>
 <body>
 <main>
-  <h1>Welcome!</h1>
+  <header>
+    <h1>Welcome!</h1>
+    <p class="notify"><a href="https://groups.google.com/g/beckuro-games-news">Get notified about beckuro games playtests!</a></p>
+  </header>
 
   <section aria-labelledby="bec">
     <h2 id="projects">projects by bec</h2>
